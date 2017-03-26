@@ -9,12 +9,12 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.preference.PreferenceManager;
 import android.support.v4.app.NotificationCompat;
+import android.util.Log;
 import fi.iki.elonen.NanoHTTPD;
 
 import javax.net.ssl.HttpsURLConnection;
 import java.io.*;
 import java.net.*;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -49,10 +49,12 @@ public class HttpForwarder extends NanoHTTPD {
     }
 
     @Override
-    public Response serve(String uri, Method method, Map<String, String> headers, Map<String, String> parms, Map<String, String> files) {
+    public Response serve(IHTTPSession session) {
+        return super.serve(session);
+    }
 
-        final NotificationCompat.Builder builder = new NotificationCompat.Builder(context);
-        builder.setSmallIcon(R.drawable.ic_cloud_done_white_24dp);
+    @Override
+    public Response serve(String uri, Method method, Map<String, String> headers, Map<String, String> parms, Map<String, String> files) {
 
         final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
 
@@ -66,7 +68,6 @@ public class HttpForwarder extends NanoHTTPD {
         }
 
         HttpURLConnection client = null;
-        final NotificationCompat.BigTextStyle bigTextStyle = new NotificationCompat.BigTextStyle();
         try {
             if (username != null && password != null) {
                 Authenticator.setDefault(new Authenticator() {
@@ -81,71 +82,63 @@ public class HttpForwarder extends NanoHTTPD {
                 });
             }
 
-            URL url = new URL(targetUrl + "/flash/add");
+            URL url = new URL(targetUrl + uri);
             client = (HttpURLConnection) url.openConnection();
-            client.setRequestMethod("POST");
+            client.setRequestMethod(method.name());
             client.setDoOutput(true);
             client.setDoInput(true);
             client.setUseCaches(false);
             client.setConnectTimeout(10000);
             client.setReadTimeout(10000);
-            Map<String, String> paramsToTransfer = new HashMap<>(3);
-            paramsToTransfer.put("source", parms.get("source"));
-            paramsToTransfer.put("passwords", parms.get("passwords"));
-            paramsToTransfer.put("urls", parms.get("urls"));
 
-            String response = "";
-            OutputStream os = client.getOutputStream();
-            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, "UTF-8"));
-            writer.write(getPostDataString(paramsToTransfer));
-            writer.flush();
-            writer.close();
-            os.close();
-
+            writeRequest(parms, client);
+            InputStream responseStream = null;
             int responseCode=client.getResponseCode();
             if (responseCode >= HttpsURLConnection.HTTP_OK && responseCode < HttpsURLConnection.HTTP_BAD_REQUEST) {
-                builder.setContentTitle("Erfolgreich übertragen");
-                bigTextStyle.bigText(parms.get("urls"));
+                responseStream = client.getInputStream();
             }
             else {
-                builder.setContentTitle("Fehler HTTP-Code " + responseCode);
-                response = readResponseText(client.getErrorStream());
-                if (responseCode == HttpsURLConnection.HTTP_UNAUTHORIZED) {
-                    response = "Fehlerhafte Authentifizierung!";
-                }
-                bigTextStyle.bigText(response);
+                responseStream = client.getErrorStream();
             }
-            bigTextStyle.setSummaryText(parms.get("source"));
-            builder.setStyle(bigTextStyle);
-            notifyManager.notify(0, builder.build());
+            if (uri.contains("flash/add")) {
+                notifyToUser(parms, responseCode,"", "");
+            }
+            return generateResponse(responseCode, responseStream);
         }
         catch (IOException e) {
-            builder.setContentTitle("IO-Fehler");
-            builder.setContentText(e.getMessage())
-                    .setStyle(bigTextStyle.bigText(e.getMessage()));
-            notifyManager.notify(0, builder.build());
+            notifyToUser(parms, 500, "IO-Fehler", e.getMessage());
+            return generateResponse(500, null);
+        }
+        catch (Exception e) {
+            Log.e(getClass().getName(), e.getMessage(), e);
+            notifyToUser(parms, 500, "Unbekannter-Fehler", e.getClass().getName() + ":" + e.getMessage());
+            return generateResponse(500, null);
         }
         finally {
             if (client != null) {
                 client.disconnect();
             }
         }
-        return super.serve(uri, method, headers, parms, files);
     }
 
-    private String readResponseText(InputStream inputStream) throws IOException {
-        String response = "";
-        String line;
-        BufferedReader br=new BufferedReader(new InputStreamReader(inputStream));
-        while ((line=br.readLine()) != null) {
-            response+=line;
+    private void writeRequest(Map<String, String> parms, HttpURLConnection client) throws IOException {
+        OutputStream os = client.getOutputStream();
+        BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, "UTF-8"));
+        writer.write(getPostDataString(parms));
+        writer.flush();
+        writer.close();
+        os.close();
+    }
+
+    private Response generateResponse(int responseCode, InputStream response) {
+        Response.Status resStatus = Response.Status.BAD_REQUEST;
+        for (Response.Status status : Response.Status.values()) {
+            if (status.getRequestStatus() == responseCode) {
+                resStatus = status;
+                break;
+            }
         }
-        return response;
-    }
-
-    @Override
-    public Response serve(IHTTPSession session) {
-        return super.serve(session);
+        return new Response(resStatus, "application/x-www-form-urlencoded", response, -1) {};
     }
 
     private String getPostDataString(Map<String, String> params) throws UnsupportedEncodingException {
@@ -159,10 +152,35 @@ public class HttpForwarder extends NanoHTTPD {
 
             result.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
             result.append("=");
-            result.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
+            result.append(entry.getValue() != null ?
+                    URLEncoder.encode(entry.getValue(), "UTF-8") : "");
         }
 
         return result.toString();
+    }
+
+    private void notifyToUser(Map<String, String> parms, int responseCode, String errorMsg, String errorDetails) {
+        final NotificationCompat.BigTextStyle bigTextStyle = new NotificationCompat.BigTextStyle();
+        final NotificationCompat.Builder builder = new NotificationCompat.Builder(context);
+        builder.setSmallIcon(R.drawable.ic_cloud_done_white_24dp);
+
+        if (responseCode >= 200 && responseCode < 400) {
+            builder.setContentTitle("Erfolgreich übertragen");
+            bigTextStyle.bigText(parms.get("urls"));
+            bigTextStyle.setSummaryText(parms.get("source"));
+        }
+        else
+        if (responseCode == HttpsURLConnection.HTTP_UNAUTHORIZED) {
+            builder.setContentTitle("Fehlerhafte Authentifizierung!");
+            builder.setContentText("Prüfe Sie die Basic-Auth Daten!");
+        }
+        else
+        if (responseCode == 500) {
+            builder.setContentTitle(errorMsg);
+            builder.setContentText(errorDetails);
+        }
+        builder.setStyle(bigTextStyle);
+        notifyManager.notify(0, builder.build());
     }
 
 
