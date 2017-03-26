@@ -1,10 +1,11 @@
 package de.nullzero.cln.clicknloadforwarder;
 
+import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
-import android.os.Binder;
 import android.os.IBinder;
-import fi.iki.elonen.NanoHTTPD;
+import android.support.v4.app.NotificationCompat;
 
 import java.io.IOException;
 
@@ -13,13 +14,7 @@ import java.io.IOException;
  */
 public class ForwarderServiceImpl extends Service implements ForwarderService {
 
-    private final IBinder forwarderServiceBinder = new ForwarderServiceBinder();
     private HttpForwarder forwarder;
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return forwarderServiceBinder;
-    }
 
     @Override
     public void onCreate() {
@@ -29,6 +24,12 @@ public class ForwarderServiceImpl extends Service implements ForwarderService {
             forwarder.start();
         } catch (IOException e) {
             e.printStackTrace();
+            final NotificationManager notifyManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            final NotificationCompat.Builder builder = new NotificationCompat.Builder(this);
+            builder.setSmallIcon(R.drawable.ic_cloud_done_white_24dp)
+                    .setContentTitle("Fehler beim Server-Start")
+                    .setStyle(new NotificationCompat.BigTextStyle().bigText(e.getMessage()));
+            notifyManager.notify(0, builder.build());
         }
     }
 
@@ -37,12 +38,10 @@ public class ForwarderServiceImpl extends Service implements ForwarderService {
         return Service.START_STICKY;
     }
 
-
-
-    public class ForwarderServiceBinder extends Binder {
-        public ForwarderServiceImpl getService() {
-            return ForwarderServiceImpl.this;
-        }
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
     }
+
 
 }
