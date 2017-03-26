@@ -40,7 +40,10 @@ public class HttpForwarder extends NanoHTTPD {
         NetworkInfo networkInfo = cm.getActiveNetworkInfo();
         if (networkInfo.isConnected()) {
             final WifiInfo connectionInfo = wifiManager.getConnectionInfo();
-            return homeSSID != null && homeSSID.equals(connectionInfo.getSSID());
+            String ssid = connectionInfo.getSSID();
+            if (homeSSID != null && ssid.startsWith("\"")) {
+                return homeSSID.equalsIgnoreCase(ssid.substring(1, ssid.length() - 1));
+            }
         }
         return false;
     }
