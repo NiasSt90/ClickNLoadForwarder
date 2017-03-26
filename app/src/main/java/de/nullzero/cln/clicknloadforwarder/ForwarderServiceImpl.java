@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.IBinder;
 import android.support.v4.app.NotificationCompat;
+import android.util.Log;
 
 import java.io.IOException;
 
@@ -23,7 +24,7 @@ public class ForwarderServiceImpl extends Service implements ForwarderService {
         try {
             forwarder.start();
         } catch (IOException e) {
-            e.printStackTrace();
+            Log.e(getClass().getName(), e.getMessage(), e);
             final NotificationManager notifyManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             final NotificationCompat.Builder builder = new NotificationCompat.Builder(this);
             builder.setSmallIcon(R.drawable.ic_cloud_done_white_24dp)
