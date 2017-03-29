@@ -7,9 +7,11 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.support.v4.app.NotificationCompat;
 import android.util.Log;
+import android.widget.Toast;
 import fi.iki.elonen.NanoHTTPD;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -160,28 +162,38 @@ public class HttpForwarder extends NanoHTTPD {
     }
 
     private void notifyToUser(Map<String, String> parms, int responseCode, String errorMsg, String errorDetails) {
-        final NotificationCompat.BigTextStyle bigTextStyle = new NotificationCompat.BigTextStyle();
-        final NotificationCompat.Builder builder = new NotificationCompat.Builder(context);
-        builder.setSmallIcon(R.drawable.ic_cloud_done_white_24dp);
-
         if (responseCode >= 200 && responseCode < 400) {
-            builder.setContentTitle("Erfolgreich übertragen");
-            bigTextStyle.bigText(parms.get("urls"));
-            bigTextStyle.setSummaryText(parms.get("source"));
+            sendToast("Click'n'Load: Erfolgreich übertragen von " + parms.get("source"));
         }
         else
         if (responseCode == HttpsURLConnection.HTTP_UNAUTHORIZED) {
-            builder.setContentTitle("Fehlerhafte Authentifizierung!");
-            builder.setContentText("Prüfe Sie die Basic-Auth Daten!");
+            sendToast("Click'n'Load: Fehlerhafte Authentifizierung!");
         }
         else
         if (responseCode == 500) {
+            final NotificationCompat.BigTextStyle bigTextStyle = new NotificationCompat.BigTextStyle();
+            final NotificationCompat.Builder builder = new NotificationCompat.Builder(context);
+            builder.setSmallIcon(R.drawable.ic_cloud_done_white_24dp);
             builder.setContentTitle(errorMsg);
             builder.setContentText(errorDetails);
+            builder.setStyle(bigTextStyle);
+            notifyManager.notify(0, builder.build());
+            sendToast("Click'n'Load: Server-Error, siehe Notify für Details!");
         }
-        builder.setStyle(bigTextStyle);
-        notifyManager.notify(0, builder.build());
+        else {
+            sendToast("Click'n'Load: Fehler, HTTP-Code=" + responseCode);
+        }
     }
 
+    private void sendToast(final String msg) {
+        Handler h = new Handler(context.getMainLooper());
+        // Although you need to pass an appropriate context
+        h.post(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
 
 }
